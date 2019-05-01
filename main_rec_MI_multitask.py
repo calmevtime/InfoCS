@@ -31,7 +31,7 @@ parser.add_argument('--img-size', type=int, default=32, metavar='N',
                     help='The height / width of the input image to the network')
 parser.add_argument('--cr', type=int, default=10, help='compression ratio')
 parser.add_argument('--localFeat', type=int, default=512, help='intermediate features')
-parser.add_argument('--gpu-ids', type=list, default=[1], help='GPUs will be used')
+parser.add_argument('--gpu-ids', type=list, default=[0], help='GPUs will be used')
 parser.add_argument('--measure', default='JSD', help='f-divergence type')
 parser.add_argument('--MIMode', default='fd', help='mutual information calculation')
 parser.add_argument('--model', help='basic | adaptiveCS | adaptiveCS_resnet', default='resnet20_recognition_MI_multitask')
@@ -56,7 +56,7 @@ def main():
     if use_gpu:
         # model can be set to anyone that I have defined in models folder
         # note the model should match to the cifar type !
-        args.device = torch.device('cuda:0' if args.gpu_ids is not None else 'cpu')
+        args.device = torch.device('cuda' if args.gpu_ids is not None else 'cpu')
         m = args.img_size ** 2 // args.cr
         measurements = m * args.in_nc
         encoder = Encoder(args.img_size ** 2, args.img_size ** 2 // args.cr)
@@ -87,7 +87,6 @@ def main():
         if not os.path.exists(fdir):
             os.makedirs(fdir)
 
-        args.device = torch.device('cuda' if args.gpu_ids is not None else 'cpu')
 
         init_weights(encoder, init_type='normal', scale=1)
         init_weights(local_net, init_type='normal', scale=1)
@@ -249,8 +248,8 @@ def train(args, trainloader, enc, local_net, global_net, model, mi_criterion, cr
 
         # measure accuracy and record loss
         prec = accuracy(output, target)[0]
-        mi_losses.update(err_mi, input.size(0))
-        losses.update(err, input.size(0))
+        mi_losses.update(err_mi.item(), input.size(0))
+        losses.update(err.item(), input.size(0))
         top1.update(prec.item(), input.size(0))
 
         # compute gradient and do SGD step
@@ -301,7 +300,7 @@ def validate(args, val_loader, enc, local_net, global_net, model, mi_criterion, 
             # measure accuracy and record loss
             prec = accuracy(output, target)[0]
             losses.update(loss.item(), input.size(0))
-            mi_losses.update(err_mi, input.size(0))
+            mi_losses.update(err_mi.item(), input.size(0))
             top1.update(prec.item(), input.size(0))
 
             # measure elapsed time
