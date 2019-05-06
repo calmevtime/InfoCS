@@ -25,7 +25,7 @@ parser.add_argument('--image-size', type=int, default=32, metavar='N',
                     help='The height / width of the input image to the network')
 parser.add_argument('--test-batch-size', type=int, default=1000, metavar='N',
                     help='input batch size for testing (default: 1000)')
-parser.add_argument('--epochs', type=int, default=60, metavar='N',
+parser.add_argument('--epochs', type=int, default=100, metavar='N',
                     help='number of epochs to train (default: 10)')
 parser.add_argument('--lr', type=float, default=2e-4, metavar='LR',
                     help='learning rate (default: 0.01)')
@@ -47,15 +47,12 @@ parser.add_argument('--outf', default='./results', help='folder to output images
 parser.add_argument('--w-loss', type=float, default=0.01, metavar='N.',
                     help='penalty for the mse and bce loss')
 parser.add_argument('--cr', type=int, default=10, help='compression ratio')
-parser.add_argument('--gpu-ids', type=list, default=[0, 1], help='GPUs will be used')
+parser.add_argument('--gpu-ids', type=list, default=[0, 1, 2, 3], help='GPUs will be used')
 
 opt = parser.parse_args()
 if torch.cuda.is_available() and not opt.cuda:
     print("WARNING: please run with GPU")
 print(opt)
-
-torch.cuda.set_device(opt.gpu)
-print('Current gpu device: gpu %d' % (torch.cuda.current_device()))
 
 if opt.seed is None:
     opt.seed = np.random.randint(1, 10000)
@@ -157,17 +154,17 @@ def data_loader():
 
 
 class net(nn.Module):
-    def __init__(self, channels, leny):
+    def __init__(self, opt, channels, leny):
         super(net, self).__init__()
 
         self.channels = channels
         self.base = 64
-        self.fs = 64
         self.leny = leny
+        self.opt = opt
         bias = False
 
         self.relu = nn.ReLU(inplace=True)
-        self.linear1 = nn.Linear(self.channels * self.leny, self.channels * self.fs ** 2, bias=bias)
+        self.linear1 = nn.Linear(self.channels * self.leny, self.channels * opt.image_size ** 2, bias=bias)
         self.conv1 = nn.Conv2d(self.channels, self.base, 11, 1, 5, bias=bias)
         self.bn1 = nn.BatchNorm2d(self.base)
         self.conv2 = nn.Conv2d(self.base, self.base // 2, 1, 1, 0, bias=bias)
@@ -184,7 +181,7 @@ class net(nn.Module):
     def forward(self, input):
         self.output = input.view(input.size(0), -1)
         self.output = self.linear1(self.output)
-        self.output = self.output.view(-1, self.channels, self.fs, self.fs)
+        self.output = self.output.view(-1, self.channels, self.opt.image_size, self.opt.image_size)
         self.output = self.relu(self.bn1(self.conv1(self.output)))
         self.output = self.relu(self.bn2(self.conv2(self.output)))
         self.output = self.relu(self.bn3(self.conv3(self.output)))
@@ -195,23 +192,22 @@ class net(nn.Module):
 
         return self.output
 
-def val(epoch, channels, valloader, sensing_matrix, input, net, criterion_mse):
+def val(opt, epoch, channels, valloader, sensing_matrix, input, net, criterion_mse):
     errD_fake_mse_total = 0
 
     with torch.no_grad():
-        for idx, (data, _) in enumerate(valloader, 0):
-            if data.size(0) != opt.batch_size:
+        for idx, (target, _) in enumerate(valloader, 0):
+            if target.size(0) != opt.batch_size:
                 continue
 
-            data_array = data.numpy()
-            target = torch.from_numpy(data_array)  # 3x64x64
-            if opt.cuda:
-                target = target.cuda()
+            data_array = target.numpy()
+            target = target.to(opt.device)  # 3x64x64
 
             for i in range(opt.batch_size):
                 for j in range(channels):
                     input[i, j, :] = torch.from_numpy(sensing_matrix[j, :, :].dot(data_array[i, j].flatten()))
 
+            input = input.to(opt.device)
             output = net(input)
 
             errD_fake_mse = criterion_mse(output, target)
@@ -247,9 +243,13 @@ def train(epochs, trainloader, valloader):
     target = torch.FloatTensor(opt.batch_size, channels, img_size, img_size)
 
     # Instantiate models
-    reconnet = net(channels, m)
+    reconnet = net(opt, channels, m)
 
     # Weight initialization
+    gpu_list = ','.join(str(x) for x in opt.gpu_ids)
+    os.environ['CUDA_VISIBLE_DEVICES'] = gpu_list
+    print('export CUDA_VISIBLE_DEVICES=' + gpu_list)
+
     opt.device = torch.device('cuda' if opt.gpu_ids is not None else 'cpu')
     init_weights(reconnet, init_type='normal', scale=1.0)
     reconnet = nn.DataParallel(reconnet).to(opt.device)
@@ -269,11 +269,7 @@ def train(epochs, trainloader, valloader):
             data_array = target.numpy()
             for i in range(opt.batch_size):
                 for j in range(channels):
-                    if opt.cuda:
-                        input[i, j, :] = torch.from_numpy(
-                            sensing_matrix[j, :, :].dot(data_array[i, j].flatten())).cuda()
-                    else:
-                        input[i, j, :] = torch.from_numpy(sensing_matrix[j, :, :].dot(data_array[i, j].flatten()))
+                    input[i, j, :] = torch.from_numpy(sensing_matrix[j, :, :].dot(data_array[i, j].flatten())).to(opt.device)
 
             target = target.to(opt.device)
 
@@ -299,7 +295,7 @@ def train(epochs, trainloader, valloader):
                           '%s/%s/cr%s/%s/image/epoch_%03d_fake.png'
                           % (opt.outf, opt.dataset, opt.cr, opt.model, epoch), normalize=True)
         reconnet.eval()
-        val(epoch, channels, valloader, sensing_matrix, input, reconnet, criterion_mse)
+        val(opt, epoch, channels, valloader, sensing_matrix, input, reconnet, criterion_mse)
 
 
 def main():
