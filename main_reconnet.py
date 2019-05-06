@@ -238,8 +238,8 @@ def train(epochs, trainloader, valloader):
     n = img_size ** 2
     m = n // opt.cr
 
-    if os.path.exists('sensing_matrix_cr%d.npy' % (opt.cr)):
-        sensing_matrix = np.load('sensing_matrix_cr%d.npy' % (opt.cr))
+    if os.path.exists('sensing_matrix_cr{}_w{}_h{}.npy'.format(opt.cr, opt.image_size, opt.image_size)):
+        sensing_matrix = np.load('sensing_matrix_cr{}_w{}_h{}.npy'.format(opt.cr, opt.image_size, opt.image_size))
     else:
         sensing_matrix = randn(channels, m, n)
 

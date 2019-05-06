@@ -152,17 +152,15 @@ def data_loader():
 
 
 class net(nn.Module):
-    def __init__(self, channels, leny):
+    def __init__(self, opt, channels, input_size):
         super(net, self).__init__()
 
         self.channels = channels
         self.base = 64
-        self.fs = 64
-        self.leny = leny
         bias = False
 
         self.relu = nn.ReLU(inplace=True)
-        self.linear1 = nn.Linear(self.channels*self.fs**2, self.channels * self.fs ** 2, bias=bias)
+        self.linear1 = nn.Linear(input_size, self.channels * opt.image_size ** 2, bias=bias)
         self.conv1 = nn.Conv2d(self.channels, self.base, 11, 1, 5, bias=bias)
         self.bn1 = nn.BatchNorm2d(self.base)
         self.conv2 = nn.Conv2d(self.base, self.base // 2, 1, 1, 0, bias=bias)
@@ -179,7 +177,7 @@ class net(nn.Module):
     def forward(self, input):
         self.output = input.view(input.size(0), -1)
         self.output = self.linear1(self.output)
-        self.output = self.output.view(-1, self.channels, self.fs, self.fs)
+        self.output = self.output.view(-1, self.channels, opt.image_size, opt.image_size)
         self.output = self.relu(self.bn1(self.conv1(self.output)))
         self.output = self.relu(self.bn2(self.conv2(self.output)))
         self.output = self.relu(self.bn3(self.conv3(self.output)))
@@ -220,7 +218,7 @@ def val(epoch, channels, valloader, sensing_matrix, input, net, criterion_mse):
                       '%s/%s/cr%s/%s/image/epoch_%03d_fake.png'
                       % (opt.outf, opt.dataset, opt.cr, opt.model, epoch), normalize=True)
 
-def dense_to_sparse(image, num_samples, image_mask):
+def dense_to_sparse(image, num_samples, image_mask, keep_dim=False):
     """
     Samples pixels with `num_samples`/#pixels probability in `depth`.
     Only pixels with a maximum depth of `max_depth` are considered.
@@ -237,7 +235,11 @@ def dense_to_sparse(image, num_samples, image_mask):
     image_mask = np.repeat(image_mask, c, axis=0)
     image_mask = np.expand_dims(image_mask, axis=0)
     image_mask = np.repeat(image_mask, b, axis=0)
-    image[image_mask==False] = 0
+    if keep_dim:
+        image[image_mask==False] = 0
+    else:
+        image = image[image_mask==True]
+        image = image.reshape((b, image.shape[0]//b))
     return image
 
 def generate_mask(cr, H, W):
@@ -267,16 +269,16 @@ def train(epochs, trainloader, valloader):
     img_size = sz_input[2]
     n = img_size ** 2
     m = n // opt.cr
-
-    if os.path.exists('sensing_matrix_cr%d.npy' % (opt.cr)):
-        sensing_matrix = np.load('sensing_matrix_cr%d.npy' % (opt.cr))
+    if os.path.exists('sensing_matrix_cr{}_w{}_h{}.npy'.format(opt.cr, opt.image_size, opt.image_size)):
+        sensing_matrix = np.load('sensing_matrix_cr{}_w{}_h{}.npy'.format(opt.cr, opt.image_size, opt.image_size))
     else:
         sensing_matrix = randn(channels, m, n)
 
     target = torch.FloatTensor(opt.batch_size, channels, img_size, img_size)
 
     # Instantiate models
-    reconnet = net(channels, m)
+    image_mask, sparse_count = generate_mask(opt.cr, img_size, img_size)
+    reconnet = net(opt, channels, input_size=channels*sparse_count)
 
     # Weight initialization
     opt.device = torch.device('cuda' if opt.gpu_ids is not None else 'cpu')
@@ -296,7 +298,6 @@ def train(epochs, trainloader, valloader):
 
             reconnet.train()
 
-            image_mask, sparse_count = generate_mask(opt.cr, img_size, img_size)
             img_sparse = dense_to_sparse(np.copy(target), sparse_count, image_mask)
 
             input = torch.from_numpy(img_sparse).to(opt.device)
