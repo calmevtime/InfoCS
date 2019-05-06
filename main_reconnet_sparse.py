@@ -188,7 +188,7 @@ class net(nn.Module):
 
         return self.output
 
-def val(epoch, channels, valloader, sensing_matrix, input, net, criterion_mse):
+def val(epoch, channels, valloader, sensing_matrix, input, net, criterion_mse, image_mask, sparse_count):
     errD_fake_mse_total = 0
 
     with torch.no_grad():
@@ -196,7 +196,6 @@ def val(epoch, channels, valloader, sensing_matrix, input, net, criterion_mse):
             if data.size(0) != opt.batch_size:
                 continue
 
-            image_mask, sparse_count = generate_mask(opt.cr, input.shape[2], input.shape[3])
             img_sparse = dense_to_sparse(np.copy(data), sparse_count, image_mask)
             input = torch.from_numpy(img_sparse)
             if opt.cuda:
@@ -325,7 +324,7 @@ def train(epochs, trainloader, valloader):
                           '%s/%s/cr%s/%s/image/epoch_%03d_fake.png'
                           % (opt.outf, opt.dataset, opt.cr, opt.model, epoch), normalize=True)
         reconnet.eval()
-        val(epoch, channels, valloader, sensing_matrix, input, reconnet, criterion_mse)
+        val(epoch, channels, valloader, sensing_matrix, input, reconnet, criterion_mse, image_mask, sparse_count)
 
 
 def main():

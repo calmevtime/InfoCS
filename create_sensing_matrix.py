@@ -4,7 +4,7 @@ from numpy.random import randn
 
 W, H = 32, 32
 n = W * H
-cr = 10
+cr = 80
 m = n // cr
 
 
