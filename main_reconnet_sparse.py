@@ -16,7 +16,7 @@ from init_net import init_weights
 
 parser = argparse.ArgumentParser(description='PyTorch MNIST Example')
 parser.add_argument('--model', help='basic | adaptiveCS | adaptiveCS_resnet',
-                    default='reconnet_sparse')
+                    default='reconnet_sparse_conv')
 parser.add_argument('--dataset', help='lsun | imagenet | mnist | bsd500 | bsd500_patch', default='cifar10')
 parser.add_argument('--datapath', help='path to dataset', default='/home/user/kaixu/myGitHub/CSImageNet/data/')
 parser.add_argument('--batch-size', type=int, default=64, metavar='N',
@@ -160,7 +160,8 @@ class net(nn.Module):
         bias = False
 
         self.relu = nn.ReLU(inplace=True)
-        self.linear1 = nn.Linear(input_size, self.channels * opt.image_size ** 2, bias=bias)
+        self.linear1 = nn.Linear(input_size, opt.image_size ** 2, bias=bias)
+        # self.upsamp1 = nn.Upsample(scale_factor=int(math.sqrt(opt.cr)), mode='bilinear')
         self.conv1 = nn.Conv2d(self.channels, self.base, 11, 1, 5, bias=bias)
         self.bn1 = nn.BatchNorm2d(self.base)
         self.conv2 = nn.Conv2d(self.base, self.base // 2, 1, 1, 0, bias=bias)
@@ -175,18 +176,18 @@ class net(nn.Module):
         self.tanh = nn.Tanh()
 
     def forward(self, input):
-        self.output = input.view(input.size(0), -1)
-        self.output = self.linear1(self.output)
-        self.output = self.output.view(-1, self.channels, opt.image_size, opt.image_size)
-        self.output = self.relu(self.bn1(self.conv1(self.output)))
-        self.output = self.relu(self.bn2(self.conv2(self.output)))
-        self.output = self.relu(self.bn3(self.conv3(self.output)))
-        self.output = self.relu(self.bn4(self.conv4(self.output)))
-        self.output = self.relu(self.bn5(self.conv5(self.output)))
-        self.output = self.conv6(self.output)
-        self.output = self.tanh(self.output)
+        # output = input.view(input.size(0), -1)
+        output = self.linear1(input)
+        output = output.view(-1, self.channels, opt.image_size, opt.image_size)
+        output = self.relu(self.bn1(self.conv1(output)))
+        output = self.relu(self.bn2(self.conv2(output)))
+        output = self.relu(self.bn3(self.conv3(output)))
+        output = self.relu(self.bn4(self.conv4(output)))
+        output = self.relu(self.bn5(self.conv5(output)))
+        output = self.conv6(output)
+        output = self.tanh(output)
 
-        return self.output
+        return output
 
 def val(opt, epoch, valloader, net, criterion_mse, image_mask, sparse_count):
     errD_fake_mse_total = 0
@@ -230,13 +231,14 @@ def dense_to_sparse(image, num_samples, image_mask, keep_dim=False):
     b, c, w, h = image.shape
     image_mask = np.expand_dims(image_mask, axis=0)
     image_mask = np.repeat(image_mask, c, axis=0)
-    image_mask = np.expand_dims(image_mask, axis=0)
-    image_mask = np.repeat(image_mask, b, axis=0)
+    # image_mask = np.expand_dims(image_mask, axis=0)
+    # image_mask = np.repeat(image_mask, b, axis=0)
     if keep_dim:
         image[image_mask==False] = 0
     else:
-        image = image[image_mask==True]
-        image = image.reshape((b, image.shape[0]//b))
+        image = np.asarray([img[image_mask==True] for img in image])
+        img_size = image.shape[-1] // c
+        image = image.reshape((b, c, img_size))
     return image
 
 def generate_mask(cr, H, W):
@@ -266,16 +268,16 @@ def train(epochs, trainloader, valloader):
     img_size = sz_input[2]
     n = img_size ** 2
     m = n // opt.cr
-    if os.path.exists('sensing_matrix_cr{}_w{}_h{}.npy'.format(opt.cr, opt.image_size, opt.image_size)):
-        sensing_matrix = np.load('sensing_matrix_cr{}_w{}_h{}.npy'.format(opt.cr, opt.image_size, opt.image_size))
-    else:
-        sensing_matrix = randn(channels, m, n)
+    # if os.path.exists('sensing_matrix_cr{}_w{}_h{}.npy'.format(opt.cr, opt.image_size, opt.image_size)):
+    #     sensing_matrix = np.load('sensing_matrix_cr{}_w{}_h{}.npy'.format(opt.cr, opt.image_size, opt.image_size))
+    # else:
+    #     sensing_matrix = randn(channels, m, n)
 
     target = torch.FloatTensor(opt.batch_size, channels, img_size, img_size)
 
     # Instantiate models
     image_mask, sparse_count = generate_mask(opt.cr, img_size, img_size)
-    reconnet = net(opt, channels, input_size=channels*sparse_count)
+    reconnet = net(opt, channels, input_size=sparse_count)
 
     # Weight initialization
     opt.device = torch.device('cuda' if opt.gpu_ids is not None else 'cpu')
