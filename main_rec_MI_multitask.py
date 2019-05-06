@@ -31,7 +31,7 @@ parser.add_argument('--img-size', type=int, default=32, metavar='N',
                     help='The height / width of the input image to the network')
 parser.add_argument('--cr', type=int, default=10, help='compression ratio')
 parser.add_argument('--localFeat', type=int, default=512, help='intermediate features')
-parser.add_argument('--gpu-ids', type=list, default=[0], help='GPUs will be used')
+parser.add_argument('--gpu-ids', type=list, default=[0, 1], help='GPUs will be used')
 parser.add_argument('--measure', default='JSD', help='f-divergence type')
 parser.add_argument('--MIMode', default='fd', help='mutual information calculation')
 parser.add_argument('--model', help='basic | adaptiveCS | adaptiveCS_resnet', default='resnet20_recognition_MI_multitask')

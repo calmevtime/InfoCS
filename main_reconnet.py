@@ -12,20 +12,20 @@ import torchvision.utils as vutils
 from numpy.random import randn
 from torch.nn import init
 from torchvision import datasets, transforms
-import math
+from init_net import init_weights
 
 parser = argparse.ArgumentParser(description='PyTorch MNIST Example')
 parser.add_argument('--model', help='basic | adaptiveCS | adaptiveCS_resnet',
-                    default='reconnet_MI')
+                    default='reconnet_basic')
 parser.add_argument('--dataset', help='lsun | imagenet | mnist | bsd500 | bsd500_patch', default='cifar10')
 parser.add_argument('--datapath', help='path to dataset', default='/home/user/kaixu/myGitHub/CSImageNet/data/')
-parser.add_argument('--batch-size', type=int, default=32, metavar='N',
+parser.add_argument('--batch-size', type=int, default=64, metavar='N',
                     help='input batch size for training (default: 64)')
-parser.add_argument('--image-size', type=int, default=64, metavar='N',
+parser.add_argument('--image-size', type=int, default=32, metavar='N',
                     help='The height / width of the input image to the network')
 parser.add_argument('--test-batch-size', type=int, default=1000, metavar='N',
                     help='input batch size for testing (default: 1000)')
-parser.add_argument('--epochs', type=int, default=100, metavar='N',
+parser.add_argument('--epochs', type=int, default=60, metavar='N',
                     help='number of epochs to train (default: 10)')
 parser.add_argument('--lr', type=float, default=2e-4, metavar='LR',
                     help='learning rate (default: 0.01)')
@@ -47,6 +47,7 @@ parser.add_argument('--outf', default='./results', help='folder to output images
 parser.add_argument('--w-loss', type=float, default=0.01, metavar='N.',
                     help='penalty for the mse and bce loss')
 parser.add_argument('--cr', type=int, default=10, help='compression ratio')
+parser.add_argument('--gpu-ids', type=list, default=[0, 1], help='GPUs will be used')
 
 opt = parser.parse_args()
 if torch.cuda.is_available() and not opt.cuda:
@@ -70,69 +71,6 @@ if not os.path.exists('%s/%s/cr%s/%s/model' % (opt.outf, opt.dataset, opt.cr, op
     os.makedirs('%s/%s/cr%s/%s/model' % (opt.outf, opt.dataset, opt.cr, opt.model))
 if not os.path.exists('%s/%s/cr%s/%s/image' % (opt.outf, opt.dataset, opt.cr, opt.model)):
     os.makedirs('%s/%s/cr%s/%s/image' % (opt.outf, opt.dataset, opt.cr, opt.model))
-
-
-def weights_init_normal(m):
-    classname = m.__class__.__name__
-    # print(classname)
-    if classname.find('Conv') != -1:
-        init.uniform(m.weight.data, 0.0, 0.02)
-    elif classname.find('Linear') != -1:
-        init.uniform(m.weight.data, 0.0, 0.02)
-    elif classname.find('BatchNorm2d') != -1:
-        init.uniform(m.weight.data, 1.0, 0.02)
-        init.constant(m.bias.data, 0.0)
-
-
-def weights_init_xavier(m):
-    classname = m.__class__.__name__
-    # print(classname)
-    if classname.find('Conv') != -1:
-        init.xavier_normal(m.weight.data, gain=1)
-    elif classname.find('Linear') != -1:
-        init.xavier_normal(m.weight.data, gain=1)
-    elif classname.find('BatchNorm2d') != -1:
-        init.uniform(m.weight.data, 1.0, 0.02)
-        init.constant(m.bias.data, 0.0)
-
-
-def weights_init_kaiming(m):
-    classname = m.__class__.__name__
-    # print(classname)
-    if classname.find('Conv') != -1:
-        init.kaiming_normal(m.weight.data, a=0, mode='fan_in')
-    elif classname.find('Linear') != -1:
-        init.kaiming_normal(m.weight.data, a=0, mode='fan_in')
-    elif classname.find('BatchNorm2d') != -1:
-        init.uniform(m.weight.data, 1.0, 0.02)
-        init.constant(m.bias.data, 0.0)
-
-
-def weights_init_orthogonal(m):
-    classname = m.__class__.__name__
-    print(classname)
-    if classname.find('Conv') != -1:
-        init.orthogonal(m.weight.data, gain=1)
-    elif classname.find('Linear') != -1:
-        init.orthogonal(m.weight.data, gain=1)
-    elif classname.find('BatchNorm2d') != -1:
-        init.uniform(m.weight.data, 1.0, 0.02)
-        init.constant(m.bias.data, 0.0)
-
-
-def weights_init(net, init_type='normal'):
-    print('initialization method [%s]' % init_type)
-    if init_type == 'normal':
-        net.apply(weights_init_normal)
-    elif init_type == 'xavier':
-        net.apply(weights_init_xavier)
-    elif init_type == 'kaiming':
-        net.apply(weights_init_kaiming)
-    elif init_type == 'orthogonal':
-        net.apply(weights_init_orthogonal)
-    else:
-        raise NotImplementedError('initialization method [%s] is not implemented' % init_type)
-
 
 def data_loader():
     kwopt = {'num_workers': 2, 'pin_memory': True} if opt.cuda else {}
@@ -312,30 +250,23 @@ def train(epochs, trainloader, valloader):
     reconnet = net(channels, m)
 
     # Weight initialization
-    weights_init(reconnet, init_type='normal')
+    opt.device = torch.device('cuda' if opt.gpu_ids is not None else 'cpu')
+    init_weights(reconnet, init_type='normal', scale=1.0)
+    reconnet = nn.DataParallel(reconnet).to(opt.device)
     optimizer_net = optim.Adam(reconnet.parameters(), lr=opt.lr, betas=(0.5, 0.999))
 
-    criterion_mse = nn.MSELoss()
-    criterion_bce = nn.BCELoss()
+    criterion_mse = nn.MSELoss().to(opt.device)
 
     cudnn.benchmark = True
 
-    if opt.cuda:
-        reconnet.cuda()
-
-        criterion_mse.cuda(), criterion_bce.cuda()
-
-        input = input.cuda()
-        target = target.cuda()
-
     for epoch in range(epochs):
         # training level 0
-        for idx, (data, _) in enumerate(trainloader, 0):
-            if data.size(0) != opt.batch_size:
+        for idx, (target, _) in enumerate(trainloader, 0):
+            if target.size(0) != opt.batch_size:
                 continue
 
             reconnet.train()
-            data_array = data.numpy()
+            data_array = target.numpy()
             for i in range(opt.batch_size):
                 for j in range(channels):
                     if opt.cuda:
@@ -344,9 +275,7 @@ def train(epochs, trainloader, valloader):
                     else:
                         input[i, j, :] = torch.from_numpy(sensing_matrix[j, :, :].dot(data_array[i, j].flatten()))
 
-            target = torch.from_numpy(data_array)
-            if opt.cuda:
-                target = target.cuda()
+            target = target.to(opt.device)
 
             # Train network
             reconnet.zero_grad()
