@@ -19,7 +19,7 @@ parser.add_argument('--model', help='basic | adaptiveCS | adaptiveCS_resnet',
                     default='reconnet_basic')
 parser.add_argument('--dataset', help='lsun | imagenet | mnist | bsd500 | bsd500_patch', default='cifar10')
 parser.add_argument('--datapath', help='path to dataset', default='/home/user/kaixu/myGitHub/CSImageNet/data/')
-parser.add_argument('--batch-size', type=int, default=64, metavar='N',
+parser.add_argument('--batch-size', type=int, default=128, metavar='N',
                     help='input batch size for training (default: 64)')
 parser.add_argument('--image-size', type=int, default=32, metavar='N',
                     help='The height / width of the input image to the network')
@@ -47,7 +47,7 @@ parser.add_argument('--outf', default='./results', help='folder to output images
 parser.add_argument('--w-loss', type=float, default=0.01, metavar='N.',
                     help='penalty for the mse and bce loss')
 parser.add_argument('--cr', type=int, default=10, help='compression ratio')
-parser.add_argument('--gpu-ids', type=list, default=[0, 1, 2, 3], help='GPUs will be used')
+parser.add_argument('--gpu-ids', type=list, default=[0, 1], help='GPUs will be used')
 
 opt = parser.parse_args()
 if torch.cuda.is_available() and not opt.cuda:
@@ -164,7 +164,7 @@ class net(nn.Module):
         bias = False
 
         self.relu = nn.ReLU(inplace=True)
-        self.linear1 = nn.Linear(self.channels * self.leny, self.channels * opt.image_size ** 2, bias=bias)
+        self.linear1 = nn.Linear(self.leny, opt.image_size ** 2, bias=bias)
         self.conv1 = nn.Conv2d(self.channels, self.base, 11, 1, 5, bias=bias)
         self.bn1 = nn.BatchNorm2d(self.base)
         self.conv2 = nn.Conv2d(self.base, self.base // 2, 1, 1, 0, bias=bias)
@@ -179,18 +179,18 @@ class net(nn.Module):
         self.tanh = nn.Tanh()
 
     def forward(self, input):
-        self.output = input.view(input.size(0), -1)
-        self.output = self.linear1(self.output)
-        self.output = self.output.view(-1, self.channels, self.opt.image_size, self.opt.image_size)
-        self.output = self.relu(self.bn1(self.conv1(self.output)))
-        self.output = self.relu(self.bn2(self.conv2(self.output)))
-        self.output = self.relu(self.bn3(self.conv3(self.output)))
-        self.output = self.relu(self.bn4(self.conv4(self.output)))
-        self.output = self.relu(self.bn5(self.conv5(self.output)))
-        self.output = self.conv6(self.output)
-        self.output = self.tanh(self.output)
+        # self.output = input.view(input.size(0), -1)
+        output = self.linear1(input)
+        output = output.view(-1, self.channels, self.opt.image_size, self.opt.image_size)
+        output = self.relu(self.bn1(self.conv1(output)))
+        output = self.relu(self.bn2(self.conv2(output)))
+        output = self.relu(self.bn3(self.conv3(output)))
+        output = self.relu(self.bn4(self.conv4(output)))
+        output = self.relu(self.bn5(self.conv5(output)))
+        output = self.conv6(output)
+        output = self.tanh(output)
 
-        return self.output
+        return output
 
 def val(opt, epoch, channels, valloader, sensing_matrix, input, net, criterion_mse):
     errD_fake_mse_total = 0

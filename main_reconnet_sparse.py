@@ -16,7 +16,7 @@ from init_net import init_weights
 
 parser = argparse.ArgumentParser(description='PyTorch MNIST Example')
 parser.add_argument('--model', help='basic | adaptiveCS | adaptiveCS_resnet',
-                    default='reconnet_sparse_conv')
+                    default='reconnet_sparse')
 parser.add_argument('--dataset', help='lsun | imagenet | mnist | bsd500 | bsd500_patch', default='cifar10')
 parser.add_argument('--datapath', help='path to dataset', default='/home/user/kaixu/myGitHub/CSImageNet/data/')
 parser.add_argument('--batch-size', type=int, default=64, metavar='N',

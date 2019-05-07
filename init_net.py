@@ -19,13 +19,9 @@ def get_upsample_filter(size):
 def weights_init_normal(m, std=0.02):
     classname = m.__class__.__name__
     if classname.find('Conv2d') != -1:
-        n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
-        m.weight.data.normal_(0, math.sqrt(2. / n))
+        init.normal_(m.weight.data, 0.0, std)
         if m.bias is not None:
             m.bias.data.zero_()
-        # init.normal_(m.weight.data, 0.0, std)
-        # if m.bias is not None:
-        #     m.bias.data.zero_()
     elif classname.find('Linear') != -1:
         init.normal_(m.weight.data, 0.0, std)
         if m.bias is not None:
